@@ -55,8 +55,11 @@
 unsigned int victor86c_get_num(unsigned char *buf, unsigned int * num)
 {
 	int digit[4] = { 0, 0, 0, 0 };
-	
+#if defined(VICTOR)	
 	switch (buf[6]) {
+#elif defined(CHIPMAST)
+	switch (buf[2]&0x0F) {
+#endif
 	case VICTOR86C_DIGIT0_0:
 		digit[0] = 0;
 		break;
@@ -87,11 +90,23 @@ unsigned int victor86c_get_num(unsigned char *buf, unsigned int * num)
 	case VICTOR86C_DIGIT0_9:
 		digit[0] = 9;
 		break;
+#if defined(VICTOR)    
+    case VICTOR86C_DIGIT0_BEYOND:
+        digit[0] = VICTOR86C_DIGIT0_BEYOND;
+        break;
+#elif defined(CHIPMAST)
+    case VICTOR86C_DIGIT0_BEYOND:
+        digit[0] = VICTOR86C_DIGIT0_BEYOND;
+        break;
+#endif
 	default:
-		VICTOR86C_NUM0_INVALID;
+		return VICTOR86C_NUM0_INVALID;
 	}
-
+#if defined(VICTOR)	
 	switch (buf[9]) {
+#elif defined(CHIPMAST)
+	switch ((buf[2] >> 4) &0x0F) {
+#endif
 	case VICTOR86C_DIGIT1_0:
 		digit[1] = 0;
 		break;
@@ -122,11 +137,18 @@ unsigned int victor86c_get_num(unsigned char *buf, unsigned int * num)
 	case VICTOR86C_DIGIT1_9:
 		digit[1] = 9;
 		break;
+    #if defined(VICTOR)
+    case VICTOR86C_DIGIT1_BEYOND:
+        return VICTOR86C_NUM_BEYOND;
+    #endif
 	default:
-		VICTOR86C_NUM1_INVALID;
+		return VICTOR86C_NUM1_INVALID;
 	}
-
+#if defined(VICTOR)
 	switch (buf[3]) {
+#elif defined(CHIPMAST)
+	switch (buf[1] & 0x0F) {
+#endif        
 	case VICTOR86C_DIGIT2_0:
 		digit[2] = 0;
 		break;
@@ -157,11 +179,19 @@ unsigned int victor86c_get_num(unsigned char *buf, unsigned int * num)
 	case VICTOR86C_DIGIT2_9:
 		digit[2] = 9;
 		break;
+#if defined(CHIPMAST)
+    case VICTOR86C_DIGIT2_BEYOND:
+        digit[2] = VICTOR86C_DIGIT2_BEYOND;
+        break;
+#endif        
 	default:
-		VICTOR86C_NUM2_INVALID;
+		return VICTOR86C_NUM2_INVALID;
 	}
-
+#if defined(VICTOR)
 	switch (buf[10]) {
+#elif defined(CHIPMAST)
+	switch ((buf[1] >> 4) &0x0F) {
+#endif        
 	case VICTOR86C_DIGIT3_0:
 		digit[3] = 0;
 		break;
@@ -177,17 +207,44 @@ unsigned int victor86c_get_num(unsigned char *buf, unsigned int * num)
 	case VICTOR86C_DIGIT3_4:
         digit[3] = 4;
         break;
+	case VICTOR86C_DIGIT3_5:
+        digit[3] = 5;
+        break;
+	case VICTOR86C_DIGIT3_6:
+        digit[3] = 6;
+        break;
+	case VICTOR86C_DIGIT3_7:
+        digit[3] = 7;
+        break;
+	case VICTOR86C_DIGIT3_8:
+        digit[3] = 8;
+        break;
+	case VICTOR86C_DIGIT3_9:
+        digit[3] = 9;
+        break;  
+        #if defined(VICTOR)
+    case VICTOR86C_DIGIT3_BEYOND:
+        digit[2] = VICTOR86C_DIGIT3_BEYOND;
+        break;        
+        #endif
 	default:
-		VICTOR86C_NUM3_INVALID;
+		return VICTOR86C_NUM3_INVALID;
 	}
-
+#if defined(CHIPMAST)
+    if((VICTOR86C_DIGIT0_BEYOND == digit[0])||(VICTOR86C_DIGIT2_BEYOND == digit[2]))
+        return VICTOR86C_NUM_BEYOND;
+#endif
     *num = digit[3]*1000 + digit[2]*100 + digit[1]*10 + digit[0];
 	return VICTOR86C_NUM_VALID;
 }
 
 unsigned int victor86c_get_decimal(unsigned char *buf, double * decimal)
 {
+#if defined(VICTOR)
     switch ( buf[5] )
+#elif defined(CHIPMAST)
+    switch ( buf[0] & 0x0F )
+#endif
     {
         case VICTOR86C_DECIMAL_1 :
             *decimal = 1;
@@ -210,7 +267,11 @@ unsigned int victor86c_get_decimal(unsigned char *buf, double * decimal)
 
 unsigned int victor86c_get_sign(unsigned char *buf, int *sign)
 {
+#if defined(VICTOR)    
     switch ( buf[1] )
+#elif defined(CHIPMAST)
+    switch ((buf[0] >> 4) & 0x0F)
+#endif
     {
         case VICTOR86C_SIGN_NEGATIVE:
             *sign = -1;
@@ -232,7 +293,10 @@ unsigned int victor86c_get_value(unsigned char *buf, double * value)
     unsigned int err;
     if(err = victor86c_get_num(buf, &num))
     {
-        printf("Invalid digit = 0x%x\n", err);
+        if(VICTOR86C_NUM_BEYOND == err)
+            printf("NUM BEYOND!\n");
+        else
+            printf("Invalid digit = 0x%x\n", err);
         return err;
     }
 
@@ -247,13 +311,19 @@ unsigned int victor86c_get_value(unsigned char *buf, double * value)
         printf("Invalid sign\n");
         return err;
     }
-    *value = num * decimal;
+    *value = sign * num * decimal;
     return VICTOR86C_VALUE_VALID;
 }
 
 unsigned int victor86c_get_base(unsigned char *buf, unsigned int * base)
 {
+#if defined(VICTOR)
     *base = buf[12];
+#elif defined(CHIPMAST)  
+    *base = buf[4];
+    *base = (*base << 8) & 0xFF00;
+    *base = *base | buf[5];
+#endif
     switch ( *base )
     {
         case VICTOR86C_BASE_MILLI:
@@ -261,7 +331,10 @@ unsigned int victor86c_get_base(unsigned char *buf, unsigned int * base)
         case VICTOR86C_BASE_MICRO:
         case VICTOR86C_BASE_KILO:
         case VICTOR86C_BASE_MEGA:
-        case VICTOR86C_BASE_BEYOND:    
+        case VICTOR86C_BASE_BEYOND:  
+        #if defined(CHIPMAST)    
+        case VICTOR86C_BASE_NANO:
+        #endif    
             return VICTOR86C_BASE_VALID;
         default:
             return VICTOR86C_BASE_INVALID;
@@ -270,7 +343,11 @@ unsigned int victor86c_get_base(unsigned char *buf, unsigned int * base)
 
 unsigned int victor86c_get_unit(unsigned char *buf, unsigned int * unit)
 {
+#if defined(VICTOR)    
     *unit = buf[8];
+#elif defined(CHIPMAST)   
+    *unit = buf[6];
+#endif
     switch ( *unit )
     {
         case VICTOR86C_UNIT_VOLT:
@@ -289,7 +366,11 @@ unsigned int victor86c_get_unit(unsigned char *buf, unsigned int * unit)
 
 unsigned int victor86c_get_type(unsigned char *buf, unsigned int *type)
 {
+#if defined(VICTOR)    
     *type = buf[0];
+#elif defined(CHIPMAST)
+    *type = buf[3];
+#endif
     switch ( *type )
     {
         case VICTOR86C_TYPE_DC:
@@ -300,7 +381,8 @@ unsigned int victor86c_get_type(unsigned char *buf, unsigned int *type)
         case VICTOR86C_TYPE_DIODE:
         case VICTOR86C_TYPE_DIODE_TEST:    
         case VICTOR86C_TYPE_DC_RANGE: 
-        case VICTOR86C_TYPE_AC_RANGE:      
+        case VICTOR86C_TYPE_AC_RANGE: 
+        case VICTOR86C_TYPE_CAP:
             return VICTOR86C_TYPE_VALID;
         default:
             return VICTOR86C_TYPE_INVALID;
@@ -309,13 +391,18 @@ unsigned int victor86c_get_type(unsigned char *buf, unsigned int *type)
 
 unsigned int victor86c_get_stuff(unsigned char *buf, unsigned int *stuff)
 {
+#if defined(VICTOR)
     *stuff = buf[2];
+#elif defined(CHIPMAST)
+    *stuff = (buf[4] >> 4) & 0x0F;
+#endif
     switch ( *stuff )
     {
         case VICTOR86C_MODE_MAX:
         case VICTOR86C_MODE_MIN :
         case VICTOR86C_MODE_AUTO:
-        case VICTOR86C_MODE_DIODE:    
+        case VICTOR86C_MODE_DIODE: 
+        case VICTOR86C_MODE_OTHER:            
             return VICTOR86C_STUFF_VALID;
         default:
             return VICTOR86C_STUFF_INVALID;

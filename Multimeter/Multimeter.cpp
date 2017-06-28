@@ -57,10 +57,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
-#include <hidapi.h>
+#include "hidapi.h"
 #include <string.h>
 #include "Victor86c.h" 
 
+#define IN
+#define OUT
 
 unsigned int victor86c_get_base_sign(unsigned int val, char ** sign)
 {
@@ -85,6 +87,11 @@ unsigned int victor86c_get_base_sign(unsigned int val, char ** sign)
         case VICTOR86C_BASE_BEYOND:
             base[0] = 'L';
             break;
+        #if defined(CHIPMAST)    
+        case VICTOR86C_BASE_NANO:
+            base[0] = 'n';
+            break;
+        #endif    
         default:
             return VICTOR86C_BASE_INVALID;
     }
@@ -110,11 +117,11 @@ unsigned int victor86c_get_unit_sign(unsigned int val, char ** sign)
             unit[1] = '\0';
             break;
         case VICTOR86C_UNIT_CELCIUS:
-            unit[0] = '\167';
+            unit[0] = 167;
             unit[1] = 'C';
             break;
         case VICTOR86C_UNIT_FARENHEIT:
-            unit[0] = '\167';
+            unit[0] = 167;
             unit[1] = 'F';
             break;
         case VICTOR86C_UNIT_AMPERE:
@@ -122,7 +129,7 @@ unsigned int victor86c_get_unit_sign(unsigned int val, char ** sign)
             unit[1] = '\0';
             break;
         case VICTOR86C_UNIT_OHM:
-            unit[0] = '\234';
+            unit[0] = 234;
             unit[1] = '\0';
             break;
         case VICTOR86C_UNIT_FARAD:
@@ -168,6 +175,10 @@ unsigned int victor86c_get_type_sign(unsigned int val, char ** sign)
             type[0] = 'D';
             type[1] = 'I';
             break;  
+        case VICTOR86C_TYPE_CAP:
+            type[0] = 'C';
+            type[1] = 'A';
+			break;
         default:
             return VICTOR86C_TYPE_INVALID;
     }    
@@ -194,6 +205,7 @@ unsigned int victor86c_get_stuff_sign(unsigned int val, char ** sign)
             break;            
         case VICTOR86C_MODE_AUTO:
         case VICTOR86C_MODE_DIODE:
+        case VICTOR86C_MODE_OTHER:
             stuff[0] = 'A';
             stuff[1] = 'U';
             stuff[2] = 'T';
@@ -205,15 +217,48 @@ unsigned int victor86c_get_stuff_sign(unsigned int val, char ** sign)
     *sign = stuff;
     return VICTOR86C_STUFF_VALID;
 }
+
+#define VICTOR86C_ACQ_DEV_NO_ERR 0x00
+#define VICTOR86C_ACQ_DEV_PARAM_ERR 0x01
+#define VICTOR86C_ACQ_DEV_N0DEV_ERR 0x02
+unsigned int victor86c_acquire_dev(IN unsigned int sequence, OUT struct hid_device_info **devs, OUT struct hid_device_info **dev)
+{
+    struct hid_device_info *cur_devs, *cur_dev;
+	cur_devs = hid_enumerate(0x0, 0x0);
+    if(NULL == cur_devs)
+    {
+        return VICTOR86C_ACQ_DEV_N0DEV_ERR;
+    }
+    cur_dev = cur_devs;	
+    for(unsigned int i = 0; i <= sequence; i++)
+	{
+        if(NULL == cur_dev)
+        {
+            return VICTOR86C_ACQ_DEV_PARAM_ERR; //sequence is too much
+        }
+        if(i < sequence)
+		    cur_dev = cur_dev->next;
+	}
+    
+    *devs = cur_devs;
+    *dev = cur_dev;
+    return VICTOR86C_ACQ_DEV_NO_ERR;
+}
+
+void victor86c_release_dev(struct hid_device_info *devs)
+{
+    hid_free_enumeration(devs);
+}
     
 #define MAX_STR 255
 int _tmain(int argc, _TCHAR* argv[])
 {
 	int res;
 	unsigned char buf[256] = {0};
-	hid_device *handle;
+	hid_device *handle1;
+    hid_device *handle2;
 	//int option_index = 0;
-	wchar_t wstr[MAX_STR];
+	//wchar_t wstr[MAX_STR];
     double val;
     unsigned int unit;
     unsigned int base;
@@ -223,53 +268,152 @@ int _tmain(int argc, _TCHAR* argv[])
     char * temp;
     char str[256] = {0};
     char num[5] = {0};
-    
+    //test
+    //system("chcp 437");
 
-	handle = hid_open(VICTOR86C_VENDOR_ID, VICTOR86C_PRODUCT_ID, NULL);
-	if (!handle) {
+	// Enumerate and print the HID devices on the system
+	struct hid_device_info *devs, *cur_dev;
+	
+	devs = hid_enumerate(0x0, 0x0);
+	cur_dev = devs;	
+	while (cur_dev) {
+		printf("Device Found\n  type: %04hx %04hx\n  path: [%s]\n  serial_number: %ls",
+			cur_dev->vendor_id, cur_dev->product_id, cur_dev->path, cur_dev->serial_number);
+		printf("\n");
+		printf("  Manufacturer: %ls\n", cur_dev->manufacturer_string);
+		printf("  Product:      %ls\n", cur_dev->product_string);
+		printf("\n");
+		cur_dev = cur_dev->next;
+	}
+	hid_free_enumeration(devs);
+    
+	//handle1 = hid_open(VICTOR86C_VENDOR_ID, VICTOR86C_PRODUCT_ID, 0);
+	#if 1
+    err = victor86c_acquire_dev(0, &devs, &cur_dev);
+    if(err)
+    {
+        if(VICTOR86C_ACQ_DEV_PARAM_ERR == err)
+            printf("victor86c_acquire_dev err = Not so many devs\n");
+        else if(VICTOR86C_ACQ_DEV_N0DEV_ERR == err)
+            printf("victor86c_acquire_dev err = Don't have any dev\n");
+        return 1;
+    }
+	handle1 = hid_open_path(cur_dev->path);
+	if (handle1) {
+    /**********Just for test!!***************
+    	// Read the Manufacturer String
+    	wstr[0] = 0x0000;
+    	res = hid_get_manufacturer_string(handle1, wstr, MAX_STR);
+    	if (res < 0)
+    		printf("Unable to read manufacturer string\n");
+    	printf("Manufacturer String: %ls\n", wstr);
+        //Sleep(4000);
+    ***************************************/
+        for(int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 256; j++)
+                str[j] = '\0';
+            res = hid_read(handle1, buf, sizeof(buf));
+            if (res <= 0 || buf[0] == 0)
+    			continue;
+    		printf("%d \tres = %d : \n", i, res);
+        	for (int j = 0; j < res; j++)
+        		printf("%02hhx ", buf[j]);
+        	printf("\n");
+            if(err = victor86c_get_value(buf, &val)) //数值
+            {
+                printf("Invalid value\n");
+                continue;
+            }
+            if(err = victor86c_get_base(buf, &base)) //单位
+            {
+                printf("Invalid base\n");
+                continue;
+            }
+            if(err = victor86c_get_unit(buf, &unit)) //测试类型
+            {
+                printf("Invalid unit\n");
+                continue;
+            }  
+            if(err = victor86c_get_type(buf, &type)) //交直流
+            {
+                printf("Invalid type\n");
+                continue;
+            }   
+            if(err = victor86c_get_stuff(buf, &stuff)) //测试限制
+            {
+                printf("Invalid stuff");
+                continue;
+            }
+            victor86c_get_type_sign(type, &temp);
+            strcat(str, temp);
+            sprintf(num," %f", val);
+            strcat(str, num);
+            victor86c_get_base_sign(base, &temp);
+            strcat(str, temp);
+            victor86c_get_unit_sign(unit, &temp);
+            strcat(str, temp);
+            strcat(str, "\t");
+            victor86c_get_stuff_sign(stuff, &temp);
+            strcat(str, temp);
+            printf("%s \n", str);
+        }
+    	hid_close(handle1);
+	}
+    else {
+		printf("unable to open device\n");
+	}
+    victor86c_release_dev(devs);    
+    #endif
+
+
+    err = victor86c_acquire_dev(1, &devs, &cur_dev);
+    if(err)
+    {
+        if(1 == err)
+            printf("victor86c_acquire_dev err = Not so many devs\n");
+        else if(2 == err)
+            printf("victor86c_acquire_dev err = Don't have dev\n");
+        return 1;
+    }
+	handle2 = hid_open_path(cur_dev->path);
+	if (!handle2) {
 		printf("unable to open device\n");
  		return 1;
 	}
-
-	// Read the Manufacturer String
-	wstr[0] = 0x0000;
-	res = hid_get_manufacturer_string(handle, wstr, MAX_STR);
-	if (res < 0)
-		printf("Unable to read manufacturer string\n");
-	printf("Manufacturer String: %ls\n", wstr);
-    
+    victor86c_release_dev(devs);
     for(int i = 0; i < 5; i++)
     {
         for (int j = 0; j < 256; j++)
             str[j] = '\0';
-        res = hid_read(handle, buf, sizeof(buf));
-        if (res <= 0 || buf[0] == 0)
+        res = hid_read(handle2, buf, sizeof(buf));
+        if (res <= 0 || buf[0] == 0) //The data is invalid when buf[0] equal 0.
 			continue;
 		printf("%d \tres = %d : \n", i, res);
     	for (int j = 0; j < res; j++)
     		printf("%02hhx ", buf[j]);
     	printf("\n");
-        if(err = victor86c_get_value(buf, &val))
+        if(err = victor86c_get_value(buf, &val)) //数值
         {
             printf("Invalid value");
             continue;
         }
-        if(err = victor86c_get_base(buf, &base))
+        if(err = victor86c_get_base(buf, &base)) //单位
         {
             printf("Invalid base");
             continue;
         }
-        if(err = victor86c_get_unit(buf, &unit))
+        if(err = victor86c_get_unit(buf, &unit)) //测试类型
         {
             printf("Invalid unit");
             continue;
         }  
-        if(err = victor86c_get_type(buf, &type))
+        if(err = victor86c_get_type(buf, &type)) //交直流
         {
             printf("Invalid type");
             continue;
         }   
-        if(err = victor86c_get_stuff(buf, &stuff))
+        if(err = victor86c_get_stuff(buf, &stuff)) //测试限制
         {
             printf("Invalid stuff");
             continue;
@@ -287,9 +431,10 @@ int _tmain(int argc, _TCHAR* argv[])
         strcat(str, temp);
         printf("%s \n", str);
     }
+	hid_close(handle2);
     
-	hid_close(handle);
 	hid_exit();
+    //system("chcp 936");
 	return 0;
 }
 
